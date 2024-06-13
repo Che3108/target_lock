@@ -1,0 +1,118 @@
+#!/usr/bin/python3
+
+import cv2 as cv
+import numpy as np
+
+cap = cv.VideoCapture(0)
+
+def rescale_frame(frame, percent=75, mirror=True):
+    if mirror:
+        frame = frame[:,::-1,:]
+    width = int(frame.shape[1] * percent/ 100)
+    height = int(frame.shape[0] * percent/ 100)
+    dim = (width, height)
+    return cv.resize(frame, dim, interpolation =cv.INTER_AREA)
+
+#while True:
+    #ret, img = cap.read()
+    #print(img.shape)
+    #cv2.imshow("camera", rescale_frame(img, percent=50, mirror=True))
+    #if cv2.waitKey(10) == 27:
+    #    break
+
+
+# params for ShiTomasi corner detection
+feature_params = dict(
+    maxCorners = 100,
+    qualityLevel = 0.3,
+    minDistance = 20,
+    blockSize = 20
+)
+
+# Parameters for lucas kanade optical flow
+#lk_params = dict(
+#    winSize = (20, 20),
+#    maxLevel = 2,
+#    criteria = (cv.TERM_CRITERIA_EPS | cv.TERM_CRITERIA_COUNT, 10, 0.03)
+#)
+
+lk_params = dict(
+    winSize = (10, 10),
+    maxLevel = 2,
+    criteria = (cv.TERM_CRITERIA_EPS | cv.TERM_CRITERIA_COUNT, 10, 0.03)
+)
+
+
+
+# Take first frame and find corners in it
+ret, old_frame = cap.read()
+old_gray = cv.cvtColor(old_frame, cv.COLOR_BGR2GRAY)
+
+
+#p0 = cv.goodFeaturesToTrack(old_gray, mask = None, **feature_params)
+
+step = 80
+def get_p0():
+    p0 = []
+    for i in range(0, 640, step):
+        for j in range(0, 480, step):
+            p0.append([[i, j]])
+    p0 = np.array(p0).astype(np.float32)
+    return p0
+
+p0 = get_p0()
+
+# Create some random colors
+#color = np.random.randint(0, 255, (p0.shape[0], 3))
+
+color = np.full((p0.shape[0], 3), [0, 0, 255])
+
+# Create a mask image for drawing purposes
+mask = np.zeros_like(old_frame)
+
+frames = 0
+
+while(1):
+    ret, frame = cap.read()
+    if not ret:
+        print('No frames grabbed!')
+        break
+    frame_gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+
+    # calculate optical flow
+    p1, st, err = cv.calcOpticalFlowPyrLK(old_gray, frame_gray, p0, None, **lk_params)
+
+    # Select good points
+    if p1 is not None:
+        good_new = p1[st==1]
+        good_old = p0[st==1]
+
+    # draw the tracks
+    for i, (new, old) in enumerate(zip(good_new, good_old)):
+        a, b = new.ravel()
+        c, d = old.ravel()
+        if frames % 10 == 0:
+            mask = np.zeros_like(old_frame)
+        else:
+            mask = cv.line(mask, (int(a), int(b)), (int(c), int(d)), color[i].tolist(), 2)
+        frame = cv.circle(frame, (int(a), int(b)), 5, color[i].tolist(), -1)
+        img = cv.add(frame, mask)
+    
+    cv.imshow('frame', img)
+    k = cv.waitKey(30) & 0xff
+    if k == 27:
+        break
+    
+    # Now update the previous frame and previous points
+    old_gray = frame_gray.copy()
+
+    if frames % 10 == 0:
+        p0 = get_p0()
+    else:
+        p0 = good_new.reshape(-1, 1, 2)
+
+    frames += 1
+
+
+
+cv.destroyAllWindows()
